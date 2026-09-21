@@ -1,185 +1,91 @@
-# 📊 Project Analysis Report — Multi-Agent Travel Booking System with MCP
+# 📊 Project Analysis Report — Multi-Agent Travel Planning & Autonomous Booking System with MCP
 
-**Generated:** 2026-07-07  
-**Project:** `Multi_Agent_System_With_Mcp`
+**Generated:** 2026-09-18  
+**Project:** `Multi_Agent_System_With_Mcp2`
 
 ---
 
 ## 🏗️ Project Overview
 
-You've built a **Multi-Agent AI Travel Booking System** powered by **LangGraph**, **Groq LLM (LLaMA 3.3 70B)**, and **MCP (Model Context Protocol)** servers. The system takes a user's travel query and orchestrates multiple specialized AI agents in a pipeline to produce a complete travel plan — including flights, hotels, weather, and a final itinerary.
+A **Multi-Agent AI Travel Planning & Autonomous Booking System** powered by **LangGraph**, **Groq LLM (LLaMA 3.3 70B)**, and **MCP (Model Context Protocol)** servers. The system takes a user's travel query, orchestrates multiple specialized AI agents to produce a complete travel plan (flights, hotels, weather, itinerary), and then utilizes an **Autonomous Booking Agent** to negotiate with providers and prepare a finalized booking checkout flow for the user.
 
 ---
 
 ## 📁 Project Structure
 
 ```
-Multi_Agent_System_With_Mcp/
-├── main.py              ← LangGraph agent pipeline + CLI entry point
-├── mcp_client.py        ← MCP client connecting to 3 external servers
-├── frontend.py          ← Streamlit UI (dark-themed, premium design)
-├── tools/
-│   ├── __init__.py      ← Package marker
-│   ├── flight_tool.py   ← Legacy direct AviationStack REST client (now replaced by MCP)
-│   └── tavily_tool.py   ← Legacy direct Tavily REST client (now replaced by MCP)
-└── venv/                ← Python virtual environment
+Multi_Agent_System_With_Mcp2/
+├── main.py                     ← LangGraph agent pipeline + CLI entry point
+├── frontend.py                 ← Streamlit UI (travel planner + booking trigger)
+├── mcp_client.py               ← MCP client connecting to external tools
+├── custom_weather_mcp_server.py← Custom local MCP server for weather
+├── booking_system/             ← NEW: Autonomous Booking Engine
+│   ├── app/
+│   │   ├── main.py             ← FastAPI Backend for Checkout
+│   │   ├── agents/
+│   │   │   └── booking_orchestrator.py  ← Booking StateGraph agent
+│   │   ├── api/
+│   │   │   └── booking_routes.py        ← API routes for the checkout portal
+│   │   ├── models/
+│   │   │   └── booking.py               ← SQLAlchemy database models
+│   │   ├── schemas/
+│   │   │   └── booking_schema.py        ← Pydantic schema validations
+│   │   ├── services/
+│   │   │   ├── booking_service.py       ← Core booking persistence
+│   │   │   ├── consent_service.py       ← User consent processing
+│   │   │   └── payment_service.py       ← Mock payment and confirmation
+│   │   ├── providers/
+│   │   │   ├── base_provider.py         ← Abstract interface for travel providers
+│   │   │   └── mock_provider.py         ← Mock Flight/Train/Bus/Hotel providers
+│   │   └── static/
+│   │       ├── index.html               ← Secure Checkout Portal UI
+│   │       ├── app.js                   ← Checkout logic & Ticket rendering
+│   │       └── style.css                ← Checkout UI styling
+│   └── mcp_server/
+│       └── booking_mcp_server.py        ← FastMCP server wrapping booking actions
+└── venv/                       ← Python virtual environment
 ```
 
 ---
 
-## 📄 File-by-File Analysis
+## 📄 File-by-File Analysis (Key Components)
 
-### 1. [main.py](file:///c:/Users/daksh/OneDrive/Desktop/Multi_Agent_System_With_Mcp/main.py) — Core Agent Pipeline
+### 1. [main.py](file:///c:/Users/daksh/OneDrive/Desktop/Multi_Agent_System_With_Mcp/main.py) — Core Planning Pipeline
 
 | Aspect | Details |
 |--------|---------|
-| **Lines** | 297 |
-| **Role** | Defines the LangGraph state machine with 4 agents |
+| **Role** | Defines the initial LangGraph state machine with 5 planning agents |
 | **LLM** | Groq — `llama-3.3-70b-versatile` |
-| **Persistence** | PostgreSQL via `PostgresSaver` (long-term memory / checkpointing) |
-
-**State Schema (`TravelState`):**
-- `messages` — Conversation message history (accumulates via `operator.add`)
-- `user_query` — The raw travel request
-- `flight_results` — Output from the flight agent
-- `hotel_results` — Output from the hotel agent
-- `weather_results` — Output from the weather agent
-- `itinerary` — Final generated itinerary
-- `llm_calls` — Counter tracking total LLM invocations
+| **Updates** | Added `extract_structured_request` to parse the `TripRequest` deterministically (origin, destination, dates, budget). |
 
 **Agent Pipeline (Sequential):**
-
 ```mermaid
 graph LR
-    START --> flight_agent --> hotel_agent --> weather_agent --> itinerary_agent --> END
+    START --> extract_structured_request --> flight_agent --> hotel_agent --> weather_agent --> itinerary_agent --> END
 ```
 
-| Agent | What It Does |
-|-------|-------------|
-| **Flight Agent** | Calls `list_airports` + `list_airlines` via AviationStack MCP, then asks the LLM to generate flight recommendations using a structured prompt |
-| **Hotel Agent** | Searches `"Best hotels for {query}"` via Tavily MCP |
-| **Weather Agent** | Extracts destination city (via LLM), then fetches current weather + forecast via custom Weather MCP |
-| **Itinerary Agent** | Combines all prior results + user query and asks the LLM to create a complete travel itinerary |
+---
 
-> [!NOTE]
-> The old `search_flights()` (direct API) and `tavily_search()` (direct SDK) are commented out — you've fully migrated to MCP-based tool calling.
+### 2. Autonomous Booking System (`booking_system/`)
+
+The newly introduced booking system operates via a secondary LangGraph orchestrated in `booking_orchestrator.py`. 
+
+| Component | Description |
+|-----------|-------------|
+| **Booking Orchestrator** | (`booking_orchestrator.py`) StateGraph that runs the `orchestrator_agent`, pauses for a `consent_gate`, and finishes with a `confirmation_agent`. |
+| **FastAPI Backend** | (`booking_system/app/main.py`) Serves the API routes and mounts the static Secure Checkout Portal. |
+| **Database** | (`models/booking.py`) SQLite/SQLAlchemy schema storing `BookingSession`, `BookingItem`, and `Booking`. Recently upgraded to retain robust route fields (`origin`, `destination`, `from_location`, `to_location`). |
+| **Providers** | (`mock_provider.py`) Simulates interactions with travel APIs. Upgraded to normalize responses so all transport types (Flight, Train, Bus) reliably output uniform ticket details. |
+| **Booking MCP Server** | (`booking_mcp_server.py`) Exposes internal booking backend functions (search, add item, propose, confirm) as MCP tools so the `booking_orchestrator` can invoke them seamlessly. |
 
 ---
 
-### 2. [mcp_client.py](file:///c:/Users/daksh/OneDrive/Desktop/Multi_Agent_System_With_Mcp/mcp_client.py) — MCP Client Layer
+### 3. [frontend.py](file:///c:/Users/daksh/OneDrive/Desktop/Multi_Agent_System_With_Mcp/frontend.py) & Checkout UI
 
 | Aspect | Details |
 |--------|---------|
-| **Lines** | 278 |
-| **Role** | Connects to 3 MCP servers and exposes async wrapper functions |
-| **Library** | `langchain_mcp_adapters.client.MultiServerMCPClient` |
-
-**MCP Servers Connected:**
-
-| Server | Transport | Purpose |
-|--------|-----------|---------|
-| **Tavily** | `streamable_http` (remote) | Web search for hotels & general travel info |
-| **AviationStack** | `stdio` (local subprocess) | Airport/airline data via `aviationstack_mcp` |
-| **Weather** | `stdio` (local subprocess) | Custom weather MCP server (`custom_weather_mcp_server.py`) |
-
-**Exported Functions:**
-
-| Function | Description |
-|----------|-------------|
-| `tavily_mcp_search(query)` | Searches the web via Tavily MCP |
-| `aviation_mcp_call(tool_name, tool_args)` | Generic caller for any AviationStack tool |
-| `get_airports()` | Fetches airport list |
-| `get_airlines()` | Fetches airline list |
-| `weather_mcp_search(city)` | Gets current weather for a city |
-| `forecast_mcp_search(city)` | Gets weather forecast for a city |
-| `extract_destination(query)` | Uses Groq LLM to extract the destination city name from the user query |
-
-> [!IMPORTANT]
-> The MCP client initializes tools lazily — `initialize_mcp()` and `initialize_weather_tools()` are called once on first use, then cached globally.
-
----
-
-### 3. [frontend.py](file:///c:/Users/daksh/OneDrive/Desktop/Multi_Agent_System_With_Mcp/frontend.py) — Streamlit Web UI
-
-| Aspect | Details |
-|--------|---------|
-| **Lines** | 496 |
-| **Role** | Premium dark-themed travel planning interface |
-| **Framework** | Streamlit |
-
-**UI Features Built:**
-
-| Feature | Description |
-|---------|-------------|
-| 🎨 **Dark Theme** | Fully custom CSS — dark navy/slate palette (`#080d14`, `#0e1623`, etc.) with Inter font |
-| 🖼️ **Hero Banner** | Full-width image with overlay text and badge |
-| 🌍 **Destination Strip** | 5 clickable city cards (Tokyo, Paris, Bangkok, Rome, Dubai) with Unsplash images |
-| ⚡ **Quick Prompts** | Pre-filled travel queries ("7-day Japan under ₹2L", "Paris trip for 5 days", etc.) |
-| 📝 **Text Input** | Styled textarea for custom travel requests |
-| 🚀 **Generate Button** | Gradient blue button with hover glow and lift animation |
-| 🤖 **Live Pipeline** | Real-time `st.status` widgets showing each agent's output as it streams |
-| 📊 **Metrics Row** | Shows agents run, LLM calls count, and status |
-| 📄 **Final Plan Card** | Styled card displaying the complete travel plan |
-| 💾 **Auto-Save** | Saves plans to `travel_plans/` as markdown files |
-| ⬇️ **Download** | Download button for the generated plan |
-| 🔧 **Sidebar** | User ID input, tech stack chips, agent pipeline steps |
-
----
-
-### 4. [tools/flight_tool.py](file:///c:/Users/daksh/OneDrive/Desktop/Multi_Agent_System_With_Mcp/tools/flight_tool.py) — Legacy Flight Tool
-
-| Aspect | Details |
-|--------|---------|
-| **Lines** | 62 |
-| **Status** | ⚠️ **Legacy / Unused** — replaced by AviationStack MCP |
-
-Direct REST API client that calls `api.aviationstack.com/v1/flights`. Returns airline, departure, arrival, and status for up to 5 flights. This was the **v1 approach** before migrating to MCP.
-
----
-
-### 5. [tools/tavily_tool.py](file:///c:/Users/daksh/OneDrive/Desktop/Multi_Agent_System_With_Mcp/tools/tavily_tool.py) — Legacy Tavily Tool
-
-| Aspect | Details |
-|--------|---------|
-| **Lines** | 47 |
-| **Status** | ⚠️ **Legacy / Unused** — replaced by Tavily MCP |
-
-Direct Tavily SDK client (`TavilyClient`) that searches with `max_results=5` and formats results as numbered markdown. This was the **v1 approach** before migrating to MCP.
-
----
-
-## 🔄 Evolution / What You've Done
-
-The project shows a clear **migration path from v1 → v2**:
-
-### Phase 1 — Direct API Calls
-- Built `flight_tool.py` (direct AviationStack REST)
-- Built `tavily_tool.py` (direct Tavily SDK)
-- Agents called these tools directly
-
-### Phase 2 — MCP Migration
-- Introduced `mcp_client.py` with `MultiServerMCPClient`
-- Connected 3 MCP servers (Tavily, AviationStack, Weather)
-- Replaced direct tool calls in agents with MCP-based async calls
-- Commented out old imports in `main.py`
-
-### Phase 3 — Weather Agent
-- Added a **custom Weather MCP server** (external file: `custom_weather_mcp_server.py`)
-- Built `weather_agent` using `get_current_weather` and `get_forecast` MCP tools
-- Added `extract_destination()` to intelligently pull city names from queries via LLM
-- Added `weather_results` to the state schema
-
-### Phase 4 — Premium Frontend
-- Built a full Streamlit UI (`frontend.py`) with ~300 lines of custom CSS
-- Dark glassmorphism theme with Inter font
-- Live streaming agent pipeline visualization
-- Auto-save + download functionality
-- Quick-fill destination suggestions
-
-### Phase 5 — Long-Term Memory
-- Added PostgreSQL checkpointing via `PostgresSaver`
-- Each session gets a `thread_id` for conversation persistence
-- CLI mode uses `uuid.uuid4()` for fresh sessions; Streamlit uses a user-configurable ID
+| **Streamlit Planner** | Captures the user's initial prompt, streams the agent thought process, and presents the Final Travel Plan. Now extracts and stores `trip_data` in session state to pass down to the booking layer. |
+| **Secure Checkout Portal** | (`app.js`, `index.html`) A dedicated web interface loaded after the Booking Orchestrator proposes a plan. Users approve payments here, and the final confirmed Tickets (Flights, Trains, Buses, Hotels) are generated and rendered natively with origin/destination parsing. |
 
 ---
 
@@ -187,28 +93,22 @@ The project shows a clear **migration path from v1 → v2**:
 
 | Layer | Technology |
 |-------|-----------|
-| **Orchestration** | LangGraph (StateGraph) |
+| **Orchestration** | LangGraph (StateGraph) for both Planning & Booking pipelines |
 | **LLM** | Groq Cloud — LLaMA 3.3 70B Versatile |
-| **Tool Protocol** | MCP (Model Context Protocol) via `langchain-mcp-adapters` |
-| **Web Search** | Tavily MCP (remote, streamable HTTP) |
-| **Flight Data** | AviationStack MCP (local stdio subprocess) |
-| **Weather Data** | Custom OpenWeather MCP (local stdio subprocess) |
-| **Persistence** | PostgreSQL + LangGraph `PostgresSaver` |
-| **Frontend** | Streamlit (custom dark theme) |
-| **Environment** | Python, dotenv, psycopg |
+| **Tool Protocol** | MCP (Model Context Protocol) via `langchain-mcp-adapters` and `FastMCP` |
+| **Persistence** | SQLAlchemy (SQLite local instance for MVP) |
+| **Frontend/UI** | Streamlit (Planner) + Vanilla JS/HTML/CSS (Checkout Portal) |
+| **Backend API** | FastAPI (Checkout API) |
 
 ---
 
-## 📈 Current State
+## 📈 Current State Metrics & Enhancements
 
-| Metric | Value |
-|--------|-------|
-| Total source files | **5** (+ 1 external weather MCP server) |
-| Total lines of code | **~1,180** |
-| Active agents | **4** (Flight, Hotel, Weather, Itinerary) |
-| MCP servers | **3** (Tavily, AviationStack, Weather) |
-| Entry points | **2** (CLI via `main.py`, Web via `streamlit run frontend.py`) |
-| Legacy files | **2** (`flight_tool.py`, `tavily_tool.py` — no longer imported) |
+| Metric | Details |
+|--------|---------|
+| **Data Flow Fix** | Successfully eliminated the "Origin/Destination lost" bug by passing structured Pydantic data down the pipeline rather than recursively relying on LLMs to parse generated text. |
+| **UI Resiliency** | Added fallback logic in `app.js` and JavaScript console warnings to monitor missing routes instead of rendering "N/A" on tickets. |
+| **New Integrations** | Bus booking option added to the ticket rendering suite. |
 
 > [!TIP]
-> The legacy `tools/flight_tool.py` and `tools/tavily_tool.py` are fully replaced by MCP and could be removed or archived to keep the codebase clean.
+> The SQLite database was recently reset to correctly initialize the updated `BookingSession` and `Booking` schema columns (`origin`, `destination`, `from_location`, `to_location`, `departure`, `arrival`). If migrating to PostgreSQL in the future, consider using Alembic for dynamic schema migrations.

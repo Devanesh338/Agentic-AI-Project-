@@ -1,9 +1,17 @@
 import os
+import sys
+
+# Add booking_system to path so its internal absolute imports work
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "booking_system"))
+
 import asyncio
 import streamlit as st
 from datetime import datetime
 from langchain_core.messages import HumanMessage
 from main import app
+from app.agents.booking_orchestrator import booking_app
+import uuid
+import json
 
 st.set_page_config(
     page_title="AI Travel Booking System",
@@ -309,15 +317,34 @@ with st.sidebar:
     thread_id = st.text_input("👤 User ID", value="devanesh_user",
                               help="Your session ID — keeps travel history across queries")
 
+    st.markdown("<div class='sidebar-title'>Navigation</div>", unsafe_allow_html=True)
+    page = st.radio("Go to", ["Travel Planner", "Agent Evaluation Dashboard"], label_visibility="collapsed")
+    
+    if page == "Agent Evaluation Dashboard":
+        st.title("Redirecting to Evaluation Dashboard...")
+        st.info("The Evaluation Dashboard is a separate Streamlit page. To view it, please run: `streamlit run evaluation/dashboard.py` in your terminal.")
+        st.stop()
+
     st.markdown("<div class='sidebar-title'>Powered by</div>", unsafe_allow_html=True)
-    for tech in ["🔗 LangGraph", "🧠 Groq · LLaMA 3.3 70B", "🔍 Tavily Search", "✈️ AviationStack", "🌦️ OpenWeather"]:
+    for tech in ["🔗 LangGraph", "🧠 Groq · LLaMA 3.3 70B", "🔍 Tavily Search", "✈️ AviationStack", "🌦️ OpenWeather", "💳 Consent & Booking Engine"]:
         st.markdown(f"<div class='sidebar-chip'>{tech}</div>", unsafe_allow_html=True)
 
     st.markdown("<div class='sidebar-title'>Agent Pipeline</div>", unsafe_allow_html=True)
-    for step in ["① Flight Agent", "② Hotel Agent", "③ Weather Agent", "④ Itinerary Agent"]:
+    for step in ["① Flight Agent", "② Hotel Agent", "③ Weather Agent", "④ Itinerary Agent", "⑤ Booking Agent"]:
         st.markdown(f"<div class='sidebar-chip'>{step}</div>", unsafe_allow_html=True)
 
-# ── Hero ──────────────────────────────────────────────────────────────────────
+# ── State Initialization ──────────────────────────────────────────────────────
+if "itinerary" not in st.session_state:
+    st.session_state.itinerary = None
+if "booking_stage" not in st.session_state:
+    st.session_state.booking_stage = None
+if "session_id" not in st.session_state:
+    st.session_state.session_id = None
+if "booking_details" not in st.session_state:
+    st.session_state.booking_details = None
+if "trip_data" not in st.session_state:
+    st.session_state.trip_data = {}
+
 st.markdown("""
 <div class="hero-wrapper">
     <img class="hero-bg"
@@ -388,7 +415,10 @@ if generate:
     else:
         config = {"configurable": {"thread_id": thread_id}}
         collected = {"flight_results": "", "hotel_results": "",
-                     "weather_results": "", "itinerary": "", "llm_calls": 0}
+                     "weather_results": "", "itinerary": "", "llm_calls": 0,
+                     "origin": "", "destination": "", "departure_date": "", 
+                     "return_date": "", "travelers": 1, "budget": 0.0, 
+                     "transport_preference": ""}
 
         st.markdown("---")
         st.markdown("<div class='sec-head'><span>🤖 Agent Pipeline — Live</span></div>",
@@ -399,6 +429,13 @@ if generate:
                 {
                     "messages": [HumanMessage(content=user_query)],
                     "user_query": user_query,
+                    "origin": "",
+                    "destination": "",
+                    "departure_date": "",
+                    "return_date": "",
+                    "travelers": 1,
+                    "budget": 0.0,
+                    "transport_preference": "",
                     "flight_results": "",
                     "hotel_results": "",
                     "weather_results": "",
@@ -432,6 +469,14 @@ if generate:
                             collected["itinerary"] = text
                             st.markdown(text or "_No itinerary generated._")
 
+                        elif node_name == "extract_structured_request":
+                            collected["origin"] = state_update.get("origin", "")
+                            collected["destination"] = state_update.get("destination", "")
+                            collected["departure_date"] = state_update.get("departure_date", "")
+                            collected["return_date"] = state_update.get("return_date", "")
+                            collected["travelers"] = state_update.get("travelers", 1)
+                            collected["budget"] = state_update.get("budget", 0.0)
+
                         collected["llm_calls"] = state_update.get("llm_calls", collected["llm_calls"])
 
         asyncio.run(_run_agents())
@@ -447,6 +492,15 @@ if generate:
 
         # Final plan card
         if collected["itinerary"]:
+            st.session_state.itinerary = collected["itinerary"]
+            st.session_state.trip_data = {
+                "origin": collected["origin"],
+                "destination": collected["destination"],
+                "departure_date": collected["departure_date"],
+                "return_date": collected["return_date"],
+                "travelers": collected["travelers"],
+                "budget": collected["budget"]
+            }
             st.markdown("<div class='sec-head'><span>🗓️ Final Travel Plan</span></div>",
                         unsafe_allow_html=True)
             st.markdown(f"<div class='final-card'>{collected['itinerary']}</div>",
@@ -497,3 +551,66 @@ if generate:
         with info_col:
             st.markdown(f"<div class='save-bar'>📁 Auto-saved → <code>travel_plans/{filename}</code></div>",
                         unsafe_allow_html=True)
+
+# ── Booking UI ────────────────────────────────────────────────────────────────
+if st.session_state.itinerary:
+    st.markdown("---")
+    st.markdown("<div class='sec-head'><span>🎟️ Booking System</span></div>", unsafe_allow_html=True)
+    
+    if st.session_state.booking_stage is None:
+        if st.button("Proceed to Booking Options", use_container_width=True):
+            with st.spinner("Autonomous Booking Agent is searching for options..."):
+                if "booking_thread_id" not in st.session_state:
+                    st.session_state.booking_thread_id = str(uuid.uuid4())
+                booking_config = {"configurable": {"thread_id": st.session_state.booking_thread_id}}
+                book_res = asyncio.run(
+                    booking_app.ainvoke(
+                        {
+                            "messages": [],
+                            "user_id": thread_id,
+                            "itinerary": st.session_state.itinerary,
+                            "origin": st.session_state.trip_data.get("origin", ""),
+                            "destination": st.session_state.trip_data.get("destination", ""),
+                            "departure_date": st.session_state.trip_data.get("departure_date", ""),
+                            "return_date": st.session_state.trip_data.get("return_date", ""),
+                            "travelers": st.session_state.trip_data.get("travelers", 1),
+                            "budget": st.session_state.trip_data.get("budget", 0.0),
+                            "session_id": "",
+                            "consent_status": "PENDING",
+                            "booking_status": "",
+                            "booking_details": ""
+                        },
+                        config=booking_config
+                    )
+                )
+                st.session_state.session_id = book_res.get("session_id")
+                st.session_state.booking_stage = "AWAITING_CONSENT"
+                st.rerun()
+
+    if st.session_state.booking_stage == "AWAITING_CONSENT":
+        st.markdown("### ⚠️ Booking Prepared")
+        st.info("The AI has prepared the best booking options based on your itinerary.")
+        st.markdown("""
+        **Next Steps:**
+        To securely review your booking details and provide payment consent, please proceed to our Secure Checkout Portal.
+        """)
+        
+        checkout_url = f"http://localhost:8000/?session_id={st.session_state.session_id}&thread_id={st.session_state.booking_thread_id}"
+        st.markdown(f'<a href="{checkout_url}" target="_blank" style="display: inline-block; background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; text-align: center; width: 100%;">Open Secure Checkout Portal</a>', unsafe_allow_html=True)
+        
+        if st.button("Cancel Booking", use_container_width=True):
+            st.session_state.booking_stage = None
+            st.session_state.session_id = None
+            if "booking_thread_id" in st.session_state:
+                del st.session_state.booking_thread_id
+            st.rerun()
+
+    if st.session_state.booking_stage == "CONFIRMED":
+        st.success("🎉 Booking Completed!")
+        st.info("Your tickets have been finalized in the Secure Checkout Portal. You can check them there.")
+        
+        if st.button("Start New Trip"):
+            for key in ["itinerary", "booking_stage", "session_id", "booking_details", "booking_thread_id", "trip_data"]:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.rerun()

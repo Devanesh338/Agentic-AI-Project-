@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Travel Booking Portal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-mesh"></div>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                </svg>
+                <span>Antigravity Travel</span>
+            </div>
+            <div class="secure-badge">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                Secure Checkout
+            </div>
+        </header>
+
+        <main id="app-content">
+            <!-- Loading Skeleton -->
+            <div id="loader" class="loader-container">
+                <div class="spinner"></div>
+                <p>Loading your itinerary securely...</p>
+            </div>
+
+            <!-- Booking Details View -->
+            <div id="booking-view" class="hidden glass-card">
+                <div class="card-header">
+                    <h2>Review Your Booking</h2>
+                    <span class="status-badge pending">Awaiting Payment</span>
+                </div>
+                
+                <div id="itinerary-items" class="items-list">
+                    <!-- Populated via JS -->
+                </div>
+
+                <div class="payment-summary">
+                    <div class="summary-row">
+                        <span>Total Amount</span>
+                        <h3 id="total-amount">₹0</h3>
+                    </div>
+                    <button id="btn-approve" class="btn-primary">
+                        <span>Approve Payment & Book</span>
+                        <svg class="arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                    </button>
+                    <p class="consent-note">By clicking approve, you consent to automatic processing of the booking via our autonomous agents.</p>
+                </div>
+            </div>
+
+            <!-- Success Tickets View -->
+            <div id="success-view" class="hidden">
+                <div class="success-header">
+                    <div class="success-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </div>
+                    <h2>Booking Confirmed!</h2>
+                    <p>Your AI agents have successfully finalized your trip.</p>
+                </div>
+                <div id="tickets-container" class="tickets-grid">
+                    <!-- Populated via JS -->
+                </div>
+                <div class="actions">
+                    <button id="btn-return" class="btn-secondary">Return to Planner</button>
+                </div>
+            </div>
+
+            <!-- Error View -->
+            <div id="error-view" class="hidden glass-card error-card">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                <h2 id="error-title">Something went wrong</h2>
+                <p id="error-message">Unable to load the booking session.</p>
+            </div>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
